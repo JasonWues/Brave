@@ -29,4 +29,8 @@ public enum PlayerMovementState
     /// 滑墙
     /// </summary>
     WallSliding = 1 << 5,
+    /// <summary>
+    /// 蹬墙跳
+    /// </summary>
+    WallJump = 1 << 6,
 }

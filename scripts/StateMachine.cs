@@ -5,6 +5,8 @@ using Brave.scripts.Interface;
 public partial class StateMachine : Node
 {
     private int _currentState = -1;
+
+    public float StateTime;
     public int CurrentState
     {
         get => _currentState;
@@ -44,5 +46,6 @@ public partial class StateMachine : Node
             
         }
         _state.TickPhysics(CurrentState,delta);
+        StateTime += (float)delta;
     }
 }

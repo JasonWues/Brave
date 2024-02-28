@@ -8,8 +8,9 @@ public partial class Player : CharacterBody2D,IStateHandler
         PlayerMovementState.Idle | PlayerMovementState.Running | PlayerMovementState.Landing;
     public const float Speed = 160.0f;
     public const float JumpVelocity = -400.0f;
-    public const float FloorAcceleration = (float)(Speed / 0.2);
-    public const float AirAcceleration = (float)(Speed / 0.02);
+    public Vector2 WallJumpVelocity = new Vector2(450f, -320f);
+    public const float FloorAcceleration = Speed / 0.2f;
+    public const float AirAcceleration = Speed / 0.1f;
     
     private float _defaultGravity = ProjectSettings.GetSetting("physics/2d/default_gravity").AsSingle();
     private bool _isFirstTick = false;
@@ -20,6 +21,7 @@ public partial class Player : CharacterBody2D,IStateHandler
     private Node2D _graphics;
     private Timer _coyoteTimer;
     private Timer _jumpRequestTimer;
+    private StateMachine _stateMachine;
     
     public override void _Ready()
     {
@@ -29,6 +31,7 @@ public partial class Player : CharacterBody2D,IStateHandler
         _jumpRequestTimer = GetNode<Timer>("JumpRequestTimer");
         _handRay = GetNode<RayCast2D>("Graphics/HandRay");
         _footRay = GetNode<RayCast2D>("Graphics/FootRay");
+        _stateMachine = GetNode<StateMachine>("StateMachine");
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -75,7 +78,7 @@ public partial class Player : CharacterBody2D,IStateHandler
         MoveAndSlide();
     }
 
-    public void Stand(double delta)
+    public void Stand(float gravity,double delta)
     {
         Vector2 velocity = Velocity;
         
@@ -85,10 +88,15 @@ public partial class Player : CharacterBody2D,IStateHandler
 		
         // Add the gravity.
         if (!IsOnFloor())
-            velocity.Y += _defaultGravity * (float)delta;
+            velocity.Y += gravity * (float)delta;
         
         Velocity = velocity;
         MoveAndSlide();
+    }
+
+    public bool CanWallSlide()
+    {
+        return IsOnWall() && _handRay.IsColliding() && _footRay.IsColliding();
     }
     
     public void TickPhysics(int currentState, double delta)
@@ -108,7 +116,7 @@ public partial class Player : CharacterBody2D,IStateHandler
                 Move(_defaultGravity,delta);
                 break;
             case (int)PlayerMovementState.Landing:
-                Stand(delta);
+                Stand(_defaultGravity,delta);
                 break;
             case (int)PlayerMovementState.WallSliding:
                 Move(_defaultGravity /3,delta);
@@ -117,6 +125,21 @@ public partial class Player : CharacterBody2D,IStateHandler
                     X = GetWallNormal().X
                 };
                 break;
+            case (int)PlayerMovementState.WallJump:
+                if (_stateMachine.StateTime < 0.1)
+                {
+                    Stand(_isFirstTick ? 0.0f : _defaultGravity,delta);
+                    _graphics.Scale = _graphics.Scale with
+                    {
+                        X = GetWallNormal().X
+                    };
+                }
+                else
+                {
+                    Move(_isFirstTick ? 0.0f : _defaultGravity,delta);
+
+                }
+                break;
         }
         _isFirstTick = false;
     }
@@ -124,11 +147,16 @@ public partial class Player : CharacterBody2D,IStateHandler
     public void TransitionState(int currentState, int newState)
     {
 
+#if DEBUG
+        GD.Print($"[{Engine.GetPhysicsFrames()}] {(PlayerMovementState)currentState} => {(PlayerMovementState)newState}");
+#endif
+
         if (!GroundStates.HasFlag((PlayerMovementState)currentState) && GroundStates.HasFlag((PlayerMovementState)newState))
         {
             _coyoteTimer.Stop();
 
         }
+        var velocity = Velocity;
         
         switch (newState)
         {
@@ -140,7 +168,6 @@ public partial class Player : CharacterBody2D,IStateHandler
                 break;
             case (int)PlayerMovementState.Jump:
                 _animationPlayer.Play("jump");
-                var velocity = Velocity;
                 velocity.Y = JumpVelocity;
                 _coyoteTimer.Stop();
                 _jumpRequestTimer.Stop();
@@ -158,6 +185,13 @@ public partial class Player : CharacterBody2D,IStateHandler
                 break;
             case (int)PlayerMovementState.WallSliding:
                 _animationPlayer.Play("wallsliding");
+                break;
+            case (int)PlayerMovementState.WallJump:
+                _animationPlayer.Play("jump");
+                velocity = WallJumpVelocity;
+                velocity.X *= GetWallNormal().X;
+                Velocity = velocity;
+                _jumpRequestTimer.Stop();
                 break;
         }
         _isFirstTick = true;
@@ -212,7 +246,7 @@ public partial class Player : CharacterBody2D,IStateHandler
                 {
                     return isStill ? (int)PlayerMovementState.Landing : (int)PlayerMovementState.Running;
                 }
-                if (IsOnWall() && _handRay.IsColliding() && _footRay.IsColliding())
+                if (CanWallSlide())
                 {
                     return (int)PlayerMovementState.WallSliding;
                 }
@@ -230,11 +264,25 @@ public partial class Player : CharacterBody2D,IStateHandler
                 break;
             
             case (int)PlayerMovementState.WallSliding:
+                if (_jumpRequestTimer.TimeLeft > 0)
+                {
+                    return (int)PlayerMovementState.WallJump;
+                }
                 if (IsOnFloor())
                 {
                     return (int)PlayerMovementState.Idle;
                 }
                 if (!IsOnWall())
+                {
+                    return (int)PlayerMovementState.Fall;
+                }
+                break;
+            case (int)PlayerMovementState.WallJump:
+                if (CanWallSlide() && !_isFirstTick)
+                {
+                    return (int)PlayerMovementState.WallSliding;
+                }
+                if (Velocity.Y >= 0)
                 {
                     return (int)PlayerMovementState.Fall;
                 }
