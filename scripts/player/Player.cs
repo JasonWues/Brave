@@ -15,16 +15,20 @@ public partial class Player : CharacterBody2D,IStateHandler
     private bool _isFirstTick = false;
     
     private AnimationPlayer _animationPlayer;
-    private Sprite2D _sprite2D;
+    private RayCast2D _handRay;
+    private RayCast2D _footRay;
+    private Node2D _graphics;
     private Timer _coyoteTimer;
     private Timer _jumpRequestTimer;
     
     public override void _Ready()
     {
         _animationPlayer = GetNode<AnimationPlayer>("AnimationPlayer");
-        _sprite2D = GetNode<Sprite2D>("Sprite2D");
+        _graphics = GetNode<Node2D>("Graphics");
         _coyoteTimer = GetNode<Timer>("CoyoteTimer");
         _jumpRequestTimer = GetNode<Timer>("JumpRequestTimer");
+        _handRay = GetNode<RayCast2D>("Graphics/HandRay");
+        _footRay = GetNode<RayCast2D>("Graphics/FootRay");
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -61,7 +65,10 @@ public partial class Player : CharacterBody2D,IStateHandler
 
         if (!Mathf.IsZeroApprox(direction))
         {
-            _sprite2D.FlipH = direction < 0;
+            _graphics.Scale = _graphics.Scale with
+            {
+                X = direction < 0 ? -1 : 1
+            };
         }
 		
         Velocity = velocity;
@@ -103,6 +110,13 @@ public partial class Player : CharacterBody2D,IStateHandler
             case (int)PlayerMovementState.Landing:
                 Stand(delta);
                 break;
+            case (int)PlayerMovementState.WallSliding:
+                Move(_defaultGravity /3,delta);
+                _graphics.Scale = _graphics.Scale with
+                {
+                    X = GetWallNormal().X
+                };
+                break;
         }
         _isFirstTick = false;
     }
@@ -142,6 +156,9 @@ public partial class Player : CharacterBody2D,IStateHandler
             case (int)PlayerMovementState.Landing:
                 _animationPlayer.Play("landing");
                 break;
+            case (int)PlayerMovementState.WallSliding:
+                _animationPlayer.Play("wallsliding");
+                break;
         }
         _isFirstTick = true;
     }
@@ -171,6 +188,7 @@ public partial class Player : CharacterBody2D,IStateHandler
                     return (int)PlayerMovementState.Running;
                 }
                 break;
+            
             case (int)PlayerMovementState.Running:
                 if (!IsOnFloor())
                 {
@@ -181,22 +199,44 @@ public partial class Player : CharacterBody2D,IStateHandler
                     return (int)PlayerMovementState.Idle;
                 }
                 break;
+            
             case (int)PlayerMovementState.Jump:
                 if (Velocity.Y >= 0)
                 {
                     return (int)PlayerMovementState.Fall;
                 }
                 break;
+            
             case (int)PlayerMovementState.Fall:
                 if (IsOnFloor())
                 {
                     return isStill ? (int)PlayerMovementState.Landing : (int)PlayerMovementState.Running;
                 }
+                if (IsOnWall() && _handRay.IsColliding() && _footRay.IsColliding())
+                {
+                    return (int)PlayerMovementState.WallSliding;
+                }
                 break;
+            
             case (int)PlayerMovementState.Landing:
+                if (!isStill)
+                {
+                    return (int)PlayerMovementState.Running;
+                }
                 if (!_animationPlayer.IsPlaying())
                 {
                     return (int)PlayerMovementState.Idle;
+                }
+                break;
+            
+            case (int)PlayerMovementState.WallSliding:
+                if (IsOnFloor())
+                {
+                    return (int)PlayerMovementState.Idle;
+                }
+                if (!IsOnWall())
+                {
+                    return (int)PlayerMovementState.Fall;
                 }
                 break;
         }

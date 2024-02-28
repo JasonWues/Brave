@@ -21,7 +21,7 @@ public partial class StateMachine : Node
     {
         if (Owner is not IStateHandler)
         {
-
+            //TODO throw error 
         }
         _state = Owner as IStateHandler;
         await ToSignal(Owner, Node.SignalName.Ready);
